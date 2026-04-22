@@ -97,7 +97,7 @@ curl http://localhost:8000/api/data -H "X-API-KEY: kg_live_your_key_here"
 
 ```bash
 # From source (recommended for now)
-git clone https://github.com/yourusername/keyguard
+git clone https://github.com/The-honoured1/keyguard
 cd keyguard
 pip install -e .
 ```
@@ -388,7 +388,7 @@ KeyGuard is designed to scale horizontally without any changes.
 
 ```bash
 # Clone the repo
-git clone https://github.com/yourusername/keyguard
+git clone https://github.com/The-honoured1/keyguard
 cd keyguard
 
 # Create and activate virtual environment
