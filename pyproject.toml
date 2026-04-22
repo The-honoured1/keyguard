@@ -25,3 +25,6 @@ dev = [
     "htpx",
     "uvicorn"
 ]
+
+[tool.setuptools.packages.find]
+where = ["."]

@@ -1,0 +1,13 @@
+fastapi
+sqlalchemy[asyncio]
+asyncpg
+redis
+pydantic
+pydantic-settings
+passlib
+
+[dev]
+pytest
+pytest-asyncio
+htpx
+uvicorn
