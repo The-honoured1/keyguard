@@ -4,26 +4,35 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "keyguard-python"
-version = "0.1.0"
-description = "A production-grade API key and rate limiting library for Python."
+version = "0.2.0"
+description = "API key authentication, rate limiting, and abuse prevention as a drop-in Python library. Works with zero infrastructure."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "fastapi",
     "sqlalchemy[asyncio]",
-    "asyncpg",
-    "redis",
+    "aiosqlite",
     "pydantic",
     "pydantic-settings",
     "passlib"
 ]
 
 [project.optional-dependencies]
+postgres = [
+    "asyncpg"
+]
+redis = [
+    "redis"
+]
+all = [
+    "asyncpg",
+    "redis"
+]
 dev = [
     "pytest",
     "pytest-asyncio",
-    "htpx",
-    "uvicorn"
+    "httpx",
+    "uvicorn[standard]"
 ]
 
 [tool.setuptools.packages.find]
