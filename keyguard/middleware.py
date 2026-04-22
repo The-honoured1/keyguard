@@ -2,12 +2,19 @@ from fastapi import Request, status
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import time
-from sqlalchemy import select, func
+from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
 from .models import APIKey, UsageLog
 
+
 class KeyGuardMiddleware(BaseHTTPMiddleware):
+    """FastAPI middleware that protects routes with API key authentication.
+
+    Attaches the validated API key object to `request.state.api_key`
+    for use in downstream route handlers.
+    """
+
     def __init__(self, app, kg_instance, protected_path: str = "/api"):
         super().__init__(app)
         self.kg = kg_instance
@@ -19,7 +26,7 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         start_time = time.time()
-        ip_address = request.client.host
+        ip_address = request.client.host if request.client else "unknown"
 
         # 1. IP Blacklist Check
         if await self.kg.rate_limiting.is_ip_blocked(ip_address):
@@ -31,15 +38,17 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
         # 2. Extract API Key
         api_key_raw = request.headers.get("X-API-KEY")
         if not api_key_raw:
-            await self.kg.rate_limiting.track_ip_abuse(ip_address)
+            await self.kg.rate_limiting.track_ip_abuse(
+                ip_address, threshold=self.kg.config.ip_block_threshold
+            )
             return JSONResponse(
                 status_code=401,
-                content={"detail": "Missing API Key."}
+                content={"detail": "Missing API Key. Include X-API-KEY header."}
             )
 
         # 3. Auth & Rate Limit Check
         key_hash = self.kg.auth.hash_key(api_key_raw)
-        
+
         async with self.kg.session_factory() as session:
             result = await session.execute(
                 select(APIKey)
@@ -49,7 +58,9 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
             key_obj = result.scalar_one_or_none()
 
             if not key_obj or key_obj.organization.status != "active":
-                await self.kg.rate_limiting.track_ip_abuse(ip_address)
+                await self.kg.rate_limiting.track_ip_abuse(
+                    ip_address, threshold=self.kg.config.ip_block_threshold
+                )
                 return JSONResponse(
                     status_code=401,
                     content={"detail": "Invalid or inactive API Key."}
@@ -57,16 +68,16 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
 
             # 4. Rate Limiting
             is_limited, remaining = await self.kg.rate_limiting.is_rate_limited(
-                key_id=key_hash, 
+                key_id=key_hash,
                 limit=key_obj.rate_limit_per_minute
             )
-            
+
             if is_limited:
                 return JSONResponse(
                     status_code=429,
                     content={"detail": "Rate limit exceeded."},
                     headers={
-                        "X-RateLimit-Limit": str(key_obj.rate_limit_per_minute), 
+                        "X-RateLimit-Limit": str(key_obj.rate_limit_per_minute),
                         "X-RateLimit-Remaining": "0"
                     }
                 )
@@ -77,7 +88,7 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
 
             # 6. Post-Request: Logging
             latency = int((time.time() - start_time) * 1000)
-            
+
             usage = UsageLog(
                 key_id=key_obj.id,
                 path=request.url.path,
@@ -92,5 +103,5 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
             # Add rate limit headers
             response.headers["X-RateLimit-Limit"] = str(key_obj.rate_limit_per_minute)
             response.headers["X-RateLimit-Remaining"] = str(remaining)
-            
+
             return response
