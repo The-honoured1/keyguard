@@ -1,13 +1,22 @@
 fastapi
 sqlalchemy[asyncio]
-asyncpg
-redis
+aiosqlite
 pydantic
 pydantic-settings
 passlib
 
+[all]
+asyncpg
+redis
+
 [dev]
 pytest
 pytest-asyncio
-htpx
-uvicorn
+httpx
+uvicorn[standard]
+
+[postgres]
+asyncpg
+
+[redis]
+redis

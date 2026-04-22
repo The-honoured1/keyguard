@@ -2,55 +2,31 @@
 
 <img src="https://img.shields.io/badge/KeyGuard-API%20Gateway%20Library-6D28D9?style=for-the-badge&logo=python&logoColor=white" />
 
-<h3>Production-grade API key authentication, rate limiting, and abuse prevention<br>as a drop-in Python library.</h3>
+<h3>API key authentication, rate limiting, and abuse prevention<br>as a drop-in Python library.</h3>
 
 [![Python 3.9+](https://img.shields.io/badge/python-3.9+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.100+-green.svg)](https://fastapi.tiangolo.com)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Zero Config](https://img.shields.io/badge/Setup-Zero%20Config-brightgreen.svg)](#zero-infrastructure-quick-start)
 [![Redis](https://img.shields.io/badge/Redis-Optional-red.svg)](https://redis.io)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15+-blue.svg)](https://www.postgresql.org)
 
 </div>
 
 ---
 
-## Overview
+## Why KeyGuard?
 
-**KeyGuard** is a lightweight, production-ready Python library that gives your FastAPI application a full API gateway layer in under 10 lines of code.
+Every API needs authentication and rate limiting. But setting up PostgreSQL, Redis, and Docker just to protect a few routes is overkill for most projects.
 
-It handles the hard stuff that every SaaS backend needs:
-
-- 🔑 **API Key Lifecycle** — Generate, validate, and revoke keys with one-way hashed storage
-- ⏱️ **Sliding Window Rate Limiting** — Per-key quotas backed by Redis for millisecond precision
-- 🛡️ **IP Abuse Prevention** — Automatic blacklisting for repeated unauthorized requests
-- 📊 **Request Logging** — Per-request latency and usage tracking stored in PostgreSQL
-- 🏢 **Multi-Tenant** — Organize keys under organizations for SaaS-style access control
-
-> Inspired by how Stripe, Cloudflare, and AWS API Gateway work — simplified for real Python backends.
+**KeyGuard works with zero infrastructure** — install it, add 3 lines of code, and your API is protected. When you're ready for production, swap in PostgreSQL and Redis with a config change.
 
 ---
 
-## Table of Contents
+## Zero-Infrastructure Quick Start
 
-- [Quick Start](#quick-start)
-- [Installation](#installation)
-- [Architecture](#architecture)
-- [Configuration](#configuration)
-- [Integration Guide](#integration-guide)
-  - [Adding Middleware](#1-adding-middleware)
-  - [Initializing the Database](#2-initializing-the-database)
-  - [Creating Organizations & Keys](#3-creating-organizations--keys)
-  - [Protecting Routes](#4-protecting-routes)
-- [Rate Limiting Algorithm](#rate-limiting-algorithm)
-- [Security Model](#security-model)
-- [Database Schema](#database-schema)
-- [Scaling Considerations](#scaling-considerations)
-- [Development Setup](#development-setup)
-- [License](#license)
-
----
-
-## Quick Start
+```bash
+pip install -e .
+```
 
 ```python
 from fastapi import FastAPI
@@ -58,62 +34,227 @@ from keyguard import KeyGuard, KeyGuardConfig, KeyGuardMiddleware
 
 app = FastAPI()
 
-# 1. Configure KeyGuard
-config = KeyGuardConfig(
-    database_url="postgresql+asyncpg://user:pass@localhost/mydb",
-    redis_url="redis://localhost:6379/0",
-    secret_key="your-secret-pepper-key"
-)
+# That's it — SQLite database + in-memory rate limiting
+kg = KeyGuard(KeyGuardConfig(secret_key="my-secret"))
 
-# 2. Initialize the core instance
-kg = KeyGuard(config)
-
-# 3. Register middleware to protect your /api routes
 app.add_middleware(KeyGuardMiddleware, kg_instance=kg, protected_path="/api")
 
-# 4. Initialize database tables on startup
 @app.on_event("startup")
 async def startup():
-    await kg.init_db()
+    await kg.init_db()  # Creates a local keyguard.db file
 
-# Any route under /api is now protected
 @app.get("/api/data")
-async def protected_data():
+async def protected():
     return {"message": "Authorized!"}
 ```
 
-```bash
-# Access a protected route
-curl http://localhost:8000/api/data -H "X-API-KEY: kg_live_your_key_here"
+**No Docker. No PostgreSQL. No Redis. Just `pip install` and go.**
 
-# Missing key → 401
-# Wrong key  → 401
-# Too many   → 429 with X-RateLimit-Remaining: 0
+```bash
+# Create your first API key
+python -m keyguard init
+python -m keyguard create-org "My Project"
+python -m keyguard create-key --org "My Project" --label "dev-key"
+
+# Test it
+curl http://localhost:8000/api/data -H "X-API-KEY: kg_live_..."
 ```
 
 ---
 
-## Installation
+## Table of Contents
+
+- [Zero-Infrastructure Quick Start](#zero-infrastructure-quick-start)
+- [CLI Tool](#cli-tool)
+- [Admin API](#admin-api)
+- [Production Setup](#production-setup)
+- [Configuration](#configuration)
+- [Architecture](#architecture)
+- [Integration Guide](#integration-guide)
+- [Rate Limiting](#rate-limiting-algorithm)
+- [Security Model](#security-model)
+- [Database Schema](#database-schema)
+- [Scaling](#scaling-considerations)
+
+---
+
+## CLI Tool
+
+Manage everything from the command line — no code required.
 
 ```bash
-# From source (recommended for now)
-git clone https://github.com/The-honoured1/keyguard
-cd keyguard
-pip install -e .
+# Initialize the database
+python -m keyguard init
+
+# Create an organization
+python -m keyguard create-org "Acme Corp"
+
+# Generate an API key
+python -m keyguard create-key --org "Acme Corp" --label "production"
+
+# List everything
+python -m keyguard list-orgs
+python -m keyguard list-keys
+
+# Revoke a key
+python -m keyguard revoke-key kg_live_4Gk9
+
+# View usage stats
+python -m keyguard stats
 ```
 
-**Dependencies automatically installed:**
-- `fastapi` — Web framework
-- `sqlalchemy[asyncio]` + `asyncpg` — Async PostgreSQL
-- `redis` — Rate limiting backend
-- `pydantic` — Configuration validation
-- `passlib` — Password/secret utilities
+**Custom database and Redis:**
+
+```bash
+# Use PostgreSQL instead of SQLite
+python -m keyguard --db "postgresql+asyncpg://user:pass@localhost/db" list-keys
+
+# With Redis for rate limiting
+python -m keyguard --redis "redis://localhost:6379/0" stats
+```
+
+### CLI Output Examples
+
+```
+$ python -m keyguard list-keys
+
+Label                     Prefix          Org                  Status     Rate/min   Last Used
+──────────────────────────────────────────────────────────────────────────────────────────────
+production                kg_live_4Gk9    Acme Corp            active     120        2026-04-22 14:30
+staging-key               kg_live_xR2m    Acme Corp            active     60         never
+test-key                  kg_live_9pLq    Dev Team             revoked    30         2026-04-21 09:15
+
+Total: 3 key(s)
+```
+
+```
+$ python -m keyguard stats
+
+╔══════════════════════════════════════╗
+║        KeyGuard Statistics           ║
+╠══════════════════════════════════════╣
+║  Organizations:    2                 ║
+║  Total Keys:       3                 ║
+║  Active Keys:      2                 ║
+║  Total Requests:   1,247             ║
+║  Requests (1h):    83                ║
+║  Error Rate:       2.4%              ║
+╚══════════════════════════════════════╝
+```
+
+---
+
+## Admin API
+
+Mount a built-in admin router to manage KeyGuard via HTTP:
+
+```python
+from keyguard.api.admin import create_admin_router
+
+app.include_router(
+    create_admin_router(kg),
+    prefix="/admin",
+    tags=["KeyGuard Admin"]
+)
+```
+
+All admin endpoints are protected by the `X-Admin-Key` header (your `secret_key`).
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/admin/orgs` | Create organization |
+| `GET` | `/admin/orgs` | List organizations |
+| `POST` | `/admin/keys` | Create API key (returns raw key once) |
+| `GET` | `/admin/keys` | List all keys (masked) |
+| `DELETE` | `/admin/keys/{id}` | Revoke a key |
+| `GET` | `/admin/stats` | Usage statistics |
+
+```bash
+# Create an org
+curl -X POST http://localhost:8000/admin/orgs \
+  -H "X-Admin-Key: my-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "Acme Corp"}'
+
+# Create a key
+curl -X POST http://localhost:8000/admin/keys \
+  -H "X-Admin-Key: my-secret" \
+  -H "Content-Type: application/json" \
+  -d '{"org_name": "Acme Corp", "label": "prod-key", "rate_limit_per_minute": 120}'
+
+# List keys
+curl http://localhost:8000/admin/keys -H "X-Admin-Key: my-secret"
+
+# View stats
+curl http://localhost:8000/admin/stats -H "X-Admin-Key: my-secret"
+```
+
+> **Tip**: Visit `http://localhost:8000/docs` to get an interactive Swagger UI for all admin endpoints.
+
+---
+
+## Production Setup
+
+When you're ready for production, add PostgreSQL and Redis:
+
+```bash
+# Install production drivers
+pip install -e ".[all]"
+
+# Start infrastructure (optional Docker helper)
+cd docker && docker compose up -d
+```
+
+```python
+config = KeyGuardConfig(
+    database_url="postgresql+asyncpg://user:pass@localhost/mydb",
+    redis_url="redis://localhost:6379/0",
+    secret_key="a-long-random-secret",
+    default_rate_limit_per_minute=120,
+)
+```
+
+| Setup | Database | Rate Limiter | Best For |
+|-------|----------|-------------|----------|
+| **Zero Config** | SQLite (file) | In-memory | Prototyping, small projects, single-process |
+| **Production** | PostgreSQL | Redis | Multi-process, horizontal scaling, SaaS |
+
+---
+
+## Configuration
+
+All configuration is passed via a `KeyGuardConfig` object:
+
+```python
+from keyguard import KeyGuardConfig
+
+config = KeyGuardConfig(
+    # Database — SQLite (default) or PostgreSQL
+    database_url="sqlite+aiosqlite:///keyguard.db",
+
+    # Redis — None (default, uses in-memory) or a Redis URL
+    redis_url=None,
+
+    # Security — pepper for key hashing
+    secret_key="change-me",
+
+    # Rate limiting defaults
+    default_rate_limit_per_minute=60,
+    ip_block_threshold=100,
+)
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `database_url` | `sqlite+aiosqlite:///keyguard.db` | SQLite or PostgreSQL connection string |
+| `redis_url` | `None` | Redis URL. `None` = in-memory rate limiting |
+| `secret_key` | *(required)* | Secret pepper for key hashing |
+| `default_rate_limit_per_minute` | `60` | Default quota for new keys |
+| `ip_block_threshold` | `100` | Failed attempts before IP block |
 
 ---
 
 ## Architecture
-
-KeyGuard is designed around two core concepts: a **hot path** (executed for every request) and a **cold path** (management and analytics).
 
 ```
 Incoming Request
@@ -122,12 +263,12 @@ Incoming Request
 ┌──────────────────────────────────┐
 │        KeyGuardMiddleware        │  ← Hot Path
 │                                  │
-│  1. IP Blacklist check (Redis)   │
+│  1. IP Blacklist check           │  ← Redis or In-Memory
 │  2. Extract X-API-KEY header     │
-│  3. Hash & validate key (DB)     │
-│  4. Sliding window rate limit    │
+│  3. Hash & validate key          │  ← SQLite or PostgreSQL
+│  4. Sliding window rate limit    │  ← Redis or In-Memory
 │  5. Attach key to request.state  │
-│  6. Log usage (Postgres, async)  │
+│  6. Log usage (async)            │  ← SQLite or PostgreSQL
 └──────────────────────────────────┘
        │
        ▼
@@ -138,41 +279,17 @@ Incoming Request
 │           KeyGuard Core          │  ← Cold Path
 │                                  │
 │  • AuthService (key generation)  │
-│  • RateLimitService              │
+│  • RateLimitService (auto-pick)  │
 │  • DB session factory            │
-│  • init_db() utility             │
+│  • CLI + Admin API               │
 └──────────────────────────────────┘
 ```
 
----
-
-## Configuration
-
-All configuration is passed via a `KeyGuardConfig` object. No `.env` file is required.
-
-```python
-from keyguard import KeyGuardConfig
-
-config = KeyGuardConfig(
-    # Required
-    database_url="postgresql+asyncpg://user:pass@localhost/db",
-    redis_url="redis://localhost:6379/0",
-    secret_key="a-long-random-secret-for-key-hashing",
-
-    # Optional — with sensible defaults
-    default_rate_limit_per_minute=60,   # Default quota for new keys
-    ip_block_threshold=100,             # Failed attempts before IP ban
-    auto_init_db=True                   # Auto-create tables on init_db()
-)
-```
-
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `database_url` | `postgresql+asyncpg://...` | Async PostgreSQL connection string |
-| `redis_url` | `redis://localhost:6379/0` | Redis connection string |
-| `secret_key` | *(required)* | Pepper used when hashing keys |
-| `default_rate_limit_per_minute` | `60` | Default new key quota |
-| `ip_block_threshold` | `100` | Auth failures before IP block |
+KeyGuard automatically picks the right backend:
+- No Redis URL → `MemoryRateLimitService` (in-memory deques)
+- Redis URL set → `RateLimitService` (Redis sorted sets)
+- `sqlite://` URL → SQLite via `aiosqlite`
+- `postgresql://` URL → PostgreSQL via `asyncpg`
 
 ---
 
@@ -183,73 +300,17 @@ config = KeyGuardConfig(
 ```python
 # Protect all routes under /api
 app.add_middleware(KeyGuardMiddleware, kg_instance=kg, protected_path="/api")
-
-# Or a more specific prefix
-app.add_middleware(KeyGuardMiddleware, kg_instance=kg, protected_path="/api/v1")
 ```
 
-Routes outside the `protected_path` (e.g., `/health`, `/docs`) are completely unaffected.
+Routes outside `protected_path` (e.g., `/health`, `/docs`, `/admin`) are unaffected.
 
----
+### 2. Protecting Routes
 
-### 2. Initializing the Database
-
-KeyGuard creates its own tables inside your database without interfering with your app's existing schema.
-
-```python
-@app.on_event("startup")
-async def startup():
-    await kg.init_db()  # Creates organizations, api_keys, usage_logs tables
-```
-
----
-
-### 3. Creating Organizations & Keys
-
-KeyGuard's management interface is entirely programmatic — ideal for embedding into your own admin panel, CLI, or setup scripts.
-
-```python
-from keyguard.models import Organization, APIKey
-
-async def create_org_and_key(session):
-    # Create an Organisation
-    org = Organization(name="Acme Corp")
-    session.add(org)
-    await session.flush()
-
-    # Generate an API Key
-    raw_key, key_hash = kg.auth.generate_api_key(prefix="kg_live_")
-
-    key = APIKey(
-        org_id=org.id,
-        label="Production App Key",
-        prefix=raw_key[:8],
-        key_hash=key_hash,
-        rate_limit_per_minute=120,      # Custom quota
-        scopes=["read", "write"]        # Extensible scopes
-    )
-    session.add(key)
-    await session.commit()
-
-    print(f"API Key (show once): {raw_key}")
-    return raw_key
-
-# Use the session factory from KeyGuard
-async with kg.session_factory() as session:
-    await create_org_and_key(session)
-```
-
-> **Security note**: The `raw_key` is only available at creation time. After hashing, it cannot be recovered. Store it securely and show it to the user once.
-
----
-
-### 4. Protecting Routes
-
-Once the middleware is applied, all routes under `protected_path` automatically:
+Once middleware is applied, all routes under `protected_path` automatically:
 - Return `401` if no key is provided
 - Return `401` if the key is invalid or revoked
 - Return `429` when the rate limit is exceeded
-- Attach the key object to `request.state.api_key` for use in your handler
+- Attach the key object to `request.state.api_key`
 
 ```python
 from fastapi import Request
@@ -258,23 +319,35 @@ from fastapi import Request
 async def get_profile(request: Request):
     key = request.state.api_key   # Populated by KeyGuard
     return {
-        "org_id": str(key.org_id),
+        "org_id": key.org_id,
         "key_label": key.label,
         "scopes": key.scopes
     }
 ```
 
-**Response Headers on every authorized request:**
+**Response headers on every authorized request:**
 ```
 X-RateLimit-Limit: 60
 X-RateLimit-Remaining: 43
 ```
 
+### 3. Three Ways to Manage Keys
+
+| Method | Best For |
+|--------|----------|
+| **CLI** (`python -m keyguard`) | Quick setup, scripting, CI/CD |
+| **Admin API** (`/admin/keys`) | Web dashboards, frontends |
+| **Programmatic** (Python code) | Custom logic, migrations |
+
 ---
 
 ## Rate Limiting Algorithm
 
-KeyGuard uses the **Sliding Window Log** algorithm, implemented with Redis Sorted Sets (`ZSET`).
+KeyGuard uses the **Sliding Window Log** algorithm.
+
+**Redis mode**: Implemented with Redis Sorted Sets (`ZSET`) for distributed rate limiting across multiple processes.
+
+**In-memory mode**: Implemented with Python `deque` + `asyncio.Lock` for single-process deployments.
 
 ```
 Window: 60 seconds, Limit: 5 req/min
@@ -288,121 +361,144 @@ Timeline:
                               BLOCKED   count = 4 → ALLOWED
 ```
 
-**Why Sliding Window Log over Fixed Window?**
-
-| Algorithm | Accuracy | Redis Cost | Burst Tolerance |
-|-----------|----------|------------|-----------------|
-| Fixed Window | Low (burst at boundary) | Very low | Poor |
-| Sliding Window Counter | Medium | Low | Good |
-| **Sliding Window Log** | **High (exact)** | **Medium** | **Excellent** |
-
-For most SaaS use cases, the precision of the Sliding Window Log is worth the slightly higher Redis memory cost.
-
 ---
 
 ## Security Model
 
 ### Key Generation
-Keys are generated using Python's `secrets.token_urlsafe(32)` — cryptographically secure random bytes encoded in URL-safe Base64.
+Keys use `secrets.token_urlsafe(32)` — cryptographically secure random bytes.
 
 ```
-Final key format: {prefix}{random_32_bytes_urlsafe_base64}
-Example:          kg_live_4Gk9mBX3pLqRsW...
+Format:  {prefix}{random_32_bytes_urlsafe_base64}
+Example: kg_live_4Gk9mBX3pLqRsW...
 ```
 
 ### Key Storage
-**Raw keys are never stored.** Keys are hashed with `SHA-256 + secret pepper` before being written to the database:
+Raw keys are **never stored**. They're hashed with `SHA-256 + secret pepper`:
 
 ```
 stored_hash = SHA-256(raw_key + SECRET_KEY)
 ```
 
-Even if your database is fully compromised, the raw keys cannot be recovered without the `SECRET_KEY`.
-
 ### IP Abuse Prevention
-Every failed authentication attempt (wrong key, missing key) is tracked per IP in Redis. Once an IP exceeds the `ip_block_threshold`, it is blocked for 24 hours.
-
-```
-Abuse tracking key:   abuse:{ip}   (Counter, 1hr TTL)
-Blacklist key:        block:{ip}   (Flag, 24hr TTL)
-```
+Failed auth attempts are tracked per IP. After exceeding `ip_block_threshold`, the IP is blocked for 24 hours.
 
 ---
 
 ## Database Schema
 
-KeyGuard creates three tables in your database:
+KeyGuard creates three tables (works identically in SQLite and PostgreSQL):
 
 ```sql
 organizations
-├── id          UUID (PK)
+├── id          VARCHAR(36) (PK)
 ├── name        VARCHAR
-├── status      VARCHAR  -- 'active' | 'suspended'
-└── created_at  TIMESTAMPTZ
+├── status      VARCHAR      -- 'active' | 'suspended'
+└── created_at  DATETIME
 
 api_keys
-├── id                    UUID (PK)
-├── org_id                UUID (FK → organizations)
+├── id                    VARCHAR(36) (PK)
+├── org_id                VARCHAR(36) (FK → organizations)
 ├── label                 VARCHAR
-├── prefix                VARCHAR     -- e.g. 'kg_live_'
-├── key_hash              VARCHAR     -- SHA-256 hash, indexed
+├── prefix                VARCHAR
+├── key_hash              VARCHAR (indexed)
 ├── is_active             BOOLEAN
-├── scopes                JSONB       -- ["read", "write"]
-├── rate_limit_per_minute INTEGER
+├── scopes                JSON
+├── rate_limit_per_minute  INTEGER
 ├── monthly_limit         BIGINT
-├── created_at            TIMESTAMPTZ
-├── expires_at            TIMESTAMPTZ
-└── last_used_at          TIMESTAMPTZ
+├── created_at            DATETIME
+├── expires_at            DATETIME
+└── last_used_at          DATETIME
 
 usage_logs
-├── id          UUID (PK)
-├── key_id      UUID (FK → api_keys)
+├── id          VARCHAR(36) (PK)
+├── key_id      VARCHAR(36) (FK → api_keys)
 ├── path        VARCHAR
 ├── method      VARCHAR
 ├── status_code INTEGER
 ├── latency_ms  INTEGER
 ├── ip_address  VARCHAR
-└── timestamp   TIMESTAMPTZ
+└── timestamp   DATETIME
 ```
 
 ---
 
 ## Scaling Considerations
 
-KeyGuard is designed to scale horizontally without any changes.
-
-| Scale Level | Architecture |
-|-------------|-------------|
-| **Small** (< 1K req/s) | Single FastAPI + Postgres + Redis instance |
-| **Medium** (< 50K req/s) | Multiple FastAPI instances behind a load balancer. Redis handles shared rate limit state. |
-| **Large** (> 50K req/s) | Cache key metadata in Redis to eliminate per-request DB reads. Push `usage_logs` to a queue (Kafka/SQS) instead of writing synchronously. |
-
-**Recommended optimizations for high traffic:**
-1. **Redis Key Cache**: Cache the API key object in Redis with a short TTL (e.g., 30s) to avoid PostgreSQL on every hot path request.
-2. **Async Logging**: Push `UsageLog` entries to a background job queue to prevent database writes from adding latency to the hot path.
-3. **Read Replicas**: Point the admin queries (stats, logs) to a Postgres read replica.
+| Scale Level | Setup |
+|-------------|-------|
+| **Hobby** (< 100 req/s) | SQLite + in-memory. Single process. |
+| **Small** (< 1K req/s) | PostgreSQL + Redis. Single server. |
+| **Medium** (< 50K req/s) | PostgreSQL + Redis. Multiple workers behind a load balancer. |
+| **Large** (> 50K req/s) | Add Redis key caching, push logs to a queue (Kafka/SQS). |
 
 ---
 
 ## Development Setup
 
 ```bash
-# Clone the repo
+# Clone
 git clone https://github.com/The-honoured1/keyguard
 cd keyguard
 
-# Create and activate virtual environment
+# Create venv
 python -m venv venv
 source venv/bin/activate
 
-# Install KeyGuard with dev dependencies
+# Install with dev dependencies
 pip install -e ".[dev]"
 
-# Start infrastructure
-docker compose up -d  # Starts Postgres + Redis
+# Run the example (zero infrastructure!)
+python example_integration.py
 
-# Run the example integration
-uvicorn example_integration:app --reload
+# Or use the CLI
+python -m keyguard init
+python -m keyguard create-org "Test"
+python -m keyguard create-key --org "Test" --label "my-key"
+```
+
+**For production drivers:**
+
+```bash
+# PostgreSQL support
+pip install -e ".[postgres]"
+
+# Redis support
+pip install -e ".[redis]"
+
+# Everything
+pip install -e ".[all]"
+```
+
+---
+
+## Project Structure
+
+```
+keyguard/
+├── keyguard/
+│   ├── __init__.py          # Package exports
+│   ├── __main__.py          # CLI entry point
+│   ├── cli.py               # CLI commands
+│   ├── config.py            # Configuration
+│   ├── core.py              # KeyGuard core class
+│   ├── middleware.py         # FastAPI middleware
+│   ├── models.py            # Model re-exports
+│   ├── api/
+│   │   └── admin.py         # Admin API router
+│   ├── db/
+│   │   └── models.py        # SQLAlchemy models
+│   ├── schemas/
+│   │   └── admin.py         # Pydantic schemas
+│   └── services/
+│       ├── auth_service.py       # Key generation & hashing
+│       ├── rate_limit_service.py # Redis rate limiter
+│       └── memory_rate_limit.py  # In-memory rate limiter
+├── docker/
+│   └── docker-compose.yml   # Optional production infra
+├── example_integration.py   # Working example
+├── pyproject.toml
+└── README.md
 ```
 
 ---
@@ -414,5 +510,5 @@ MIT License — see [LICENSE](LICENSE) for details.
 ---
 
 <div align="center">
-  <sub>Built with precision. Designed for production.</sub>
+  <sub>Built with precision. Designed for simplicity.</sub>
 </div>
