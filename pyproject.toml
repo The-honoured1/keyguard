@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "keyguard-python"
+version = "0.1.0"
+description = "A production-grade API key and rate limiting library for Python."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "fastapi",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "redis",
+    "pydantic",
+    "pydantic-settings",
+    "passlib"
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest",
+    "pytest-asyncio",
+    "htpx",
+    "uvicorn"
+]
