@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
-from typing import List
+from sqlalchemy import select, func
+from typing import List, Dict
 from uuid import UUID
 
 from app.db.base import get_db
@@ -57,3 +57,36 @@ async def create_api_key(key_in: APIKeyCreate, db: AsyncSession = Depends(get_db
 async def list_keys(org_id: UUID, db: AsyncSession = Depends(get_db)):
     result = await db.execute(select(APIKey).where(APIKey.org_id == org_id))
     return result.scalars().all()
+
+@router.delete("/keys/{key_id}")
+async def revoke_key(key_id: UUID, db: AsyncSession = Depends(get_db)):
+    result = await db.execute(select(APIKey).where(APIKey.id == key_id))
+    key_obj = result.scalar_one_or_none()
+    if not key_obj:
+        raise HTTPException(status_code=404, detail="Key not found")
+    
+    key_obj.is_active = False
+    await db.commit()
+    return {"status": "success", "message": "Key revoked"}
+
+@router.get("/stats")
+async def get_stats(db: AsyncSession = Depends(get_db)):
+    """
+    Returns global statistics for the dashboard.
+    """
+    from app.db.models import UsageLog
+    
+    orgs_count = await db.execute(select(func.count(Organization.id)))
+    keys_count = await db.execute(select(func.count(APIKey.id)))
+    logs_count = await db.execute(select(func.count(UsageLog.id)))
+    
+    # Get average latency
+    avg_latency_res = await db.execute(select(func.avg(UsageLog.latency_ms)))
+    avg_latency = avg_latency_res.scalar() or 0
+    
+    return {
+        "total_organizations": orgs_count.scalar(),
+        "total_keys": keys_count.scalar(),
+        "total_requests": logs_count.scalar(),
+        "avg_latency_ms": round(float(avg_latency), 2)
+    }

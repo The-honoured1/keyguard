@@ -1,5 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 
 from app.api.v1 import admin, gateway
 from app.middleware.gateway import KeyGuardMiddleware
@@ -28,6 +30,13 @@ def create_app() -> FastAPI:
     # Include Routers
     app.include_router(admin.router, prefix=f"{settings.API_V1_STR}/admin", tags=["Admin"])
     app.include_router(gateway.router, prefix=f"{settings.API_V1_STR}/gateway", tags=["Gateway"])
+
+    # Serve Frontend
+    app.mount("/static", StaticFiles(directory="frontend"), name="static")
+
+    @app.get("/")
+    async def serve_index():
+        return FileResponse("frontend/index.html")
 
     @app.get("/health")
     async def health_check():
