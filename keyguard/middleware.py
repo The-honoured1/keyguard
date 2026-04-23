@@ -2,6 +2,7 @@ from fastapi import Request, status, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import time
+from datetime import datetime, time as dt_time, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -107,16 +108,18 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
             return response
 
 
-def rate_limit_by_ip(kg_instance, limit: int, window: int = 60):
+def rate_limit_by_ip(kg_instance, limit: int, window: int = 60, lockout: int | str = 0):
     """FastAPI dependency factory for IP-based rate limiting.
 
     Useful for login, signup, and other routes that don't use API keys.
     Ensures that a single IP cannot brute-force authentication endpoints.
 
-    Usage:
-        @app.post("/login", dependencies=[Depends(rate_limit_by_ip(kg, limit=5))])
-        async def login():
-            ...
+    Args:
+        kg_instance: KeyGuard instance.
+        limit: Number of allowed requests.
+        window: Sliding window in seconds.
+        lockout: If set, blocks the IP for this many seconds (int) or until
+                 a specific time (str like "16:00") when the limit is hit.
     """
     async def dependency(request: Request):
         ip = request.client.host if request.client else "unknown"
@@ -129,7 +132,6 @@ def rate_limit_by_ip(kg_instance, limit: int, window: int = 60):
             )
 
         # 2. Check path-specific rate limit
-        # We prefix with 'ip_limit' and include the path to avoid collisions
         is_limited, remaining = await kg_instance.rate_limiting.is_rate_limited(
             key_id=f"ip_limit:{ip}:{request.url.path}",
             limit=limit,
@@ -137,6 +139,11 @@ def rate_limit_by_ip(kg_instance, limit: int, window: int = 60):
         )
 
         if is_limited:
+            # Trigger a hard lockout if configured
+            if lockout:
+                duration = lockout if isinstance(lockout, int) else seconds_until_time(lockout)
+                await kg_instance.rate_limiting.block_ip(ip, duration)
+
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,
                 detail="Rate limit exceeded. Please try again later.",
@@ -149,3 +156,29 @@ def rate_limit_by_ip(kg_instance, limit: int, window: int = 60):
         return True
 
     return dependency
+
+
+def seconds_until_time(target_time_str: str) -> int:
+    """Calculates seconds until a specific time today or tomorrow."""
+    now = datetime.now()
+    try:
+        # Support common formats: "16:00", "4:00 PM", "4 PM"
+        t = None
+        for fmt in ("%H:%M", "%I:%M %p", "%I %p"):
+            try:
+                t = datetime.strptime(target_time_str.strip(), fmt).time()
+                break
+            except ValueError:
+                continue
+
+        if not t:
+            return 3600  # Fallback to 1 hour if unparseable
+
+        target = datetime.combine(now.date(), t)
+        if target <= now:
+            # If the time has already passed today, target tomorrow
+            target += timedelta(days=1)
+
+        return int((target - now).total_seconds())
+    except Exception:
+        return 3600

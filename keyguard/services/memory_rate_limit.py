@@ -67,6 +67,11 @@ class MemoryRateLimitService:
                 return False
             return True
 
+    async def block_ip(self, ip_address: str, duration_seconds: int):
+        """Manually block an IP for a specific duration."""
+        async with self._lock:
+            self._blocked_ips[ip_address] = time.time() + duration_seconds
+
     async def track_ip_abuse(self, ip_address: str, threshold: int = 100):
         """Track failed auth attempts per IP and block if threshold exceeded."""
         now = time.time()

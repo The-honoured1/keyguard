@@ -90,19 +90,19 @@ async def public():
 
 
 @app.post("/login")
-async def login(_=Depends(rate_limit_by_ip(kg, limit=5, window=60))):
+async def login(_=Depends(rate_limit_by_ip(kg, limit=3, window=60, lockout=86400))):
     """
-    Example login route protected by IP-based rate limiting.
-    Allows 5 attempts per minute.
+    Example login route with a 24-hour lockout.
+    If you fail 3 times in a minute, you are blocked for 24 hours.
     """
     return {"message": "Login successful! (Allowed by IP rate limit)"}
 
 
 @app.post("/signup")
-async def signup(_=Depends(rate_limit_by_ip(kg, limit=2, window=3600))):
+async def signup(_=Depends(rate_limit_by_ip(kg, limit=2, window=3600, lockout="11:59 PM"))):
     """
-    Example signup route with very strict rate limiting.
-    Allows 2 attempts per hour per IP.
+    Example signup route with a lockout until 11:59 PM.
+    If you hit the limit, you cannot try again until midnight.
     """
     return {"message": "Signup successful! (Allowed by strict IP rate limit)"}
 
