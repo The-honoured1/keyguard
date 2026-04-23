@@ -54,7 +54,7 @@ async def protected():
 # Create your first API key
 python -m keyguard init
 python -m keyguard create-org "My Project"
-python -m keyguard create-key --org "My Project" --label "dev-key"
+python -m keyguard --secret "my-secret" create-key --org "My Project" --label "dev-key"
 
 # Test it
 curl http://localhost:8000/api/data -H "X-API-KEY: kg_live_..."
@@ -90,7 +90,7 @@ python -m keyguard init
 python -m keyguard create-org "Acme Corp"
 
 # Generate an API key
-python -m keyguard create-key --org "Acme Corp" --label "production"
+python -m keyguard --secret "my-secret" create-key --org "Acme Corp" --label "production"
 
 # List everything
 python -m keyguard list-orgs

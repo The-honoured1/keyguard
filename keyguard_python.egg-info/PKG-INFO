@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: keyguard-python
-Version: 0.2.0
+Version: 0.3.0
 Summary: API key authentication, rate limiting, and abuse prevention as a drop-in Python library. Works with zero infrastructure.
 Requires-Python: >=3.9
 Description-Content-Type: text/markdown
@@ -350,25 +350,42 @@ async def get_profile(request: Request):
     }
 ```
 
-### 3. Rate Limiting by IP (Login/Signup)
+### 3. IP-Based Rate Limiting & Lockouts
 
-For routes that don't use API keys (like login or signup), you can use the `rate_limit_by_ip` dependency. This prevents brute-force attacks by limiting requests from a single IP address.
+For routes that don't use API keys (like login, signup, or heavy tasks), use the `rate_limit_by_ip` dependency. It supports sliding windows, hard lockouts, and granular scoping.
 
 ```python
 from keyguard import rate_limit_by_ip
 
-# Allow 5 login attempts per minute
-@app.post("/login", dependencies=[Depends(rate_limit_by_ip(kg, limit=5, window=60))])
-async def login():
-    return {"message": "Success"}
+# 1. Simple Rate Limit (5 per minute)
+@app.post("/api/search", dependencies=[Depends(rate_limit_by_ip(kg, limit=5))])
 
-# Extremely strict: 2 signups per hour per IP
-@app.post("/signup", dependencies=[Depends(rate_limit_by_ip(kg, limit=2, window=3600))])
-async def signup():
-    return {"message": "Account created"}
+# 2. Hard Lockout (24-hour block after 3 failures)
+@app.post("/login", dependencies=[Depends(rate_limit_by_ip(kg, limit=3, lockout=86400))])
+
+# 3. Scheduled Lockout (Block until 4:00 PM)
+@app.post("/signup", dependencies=[Depends(rate_limit_by_ip(kg, limit=2, lockout="4:00 PM"))])
+
+# 4. Global vs. Path Scope (default is "path")
+# scope="path":   Only blocks access to THIS specific endpoint.
+# scope="global": Blocks the IP from ALL KeyGuard-protected routes.
+@app.post("/heavy-task", dependencies=[Depends(rate_limit_by_ip(kg, limit=1, scope="path"))])
 ```
 
-### 4. Three Ways to Manage Keys
+### 4. Manual Logic-Based Blocking
+
+You can manually trigger a lockout from within your route handlers based on your own business logic (e.g., failed payment or fraud detection) using `kg.block_request`.
+
+```python
+@app.post("/withdraw")
+async def withdraw(request: Request):
+    if fraud_detected:
+        # Manually block this IP from /withdraw for 1 hour
+        await kg.block_request(request, duration="1 hour", scope="path")
+        return {"error": "Suspicious activity. Endpoint locked for 1 hour."}
+```
+
+### 5. Response Headers
 
 **Response headers on every authorized request:**
 ```
@@ -376,7 +393,7 @@ X-RateLimit-Limit: 60
 X-RateLimit-Remaining: 43
 ```
 
-### 3. Three Ways to Manage Keys
+### 6. Three Ways to Manage Keys
 
 | Method | Best For |
 |--------|----------|

@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "keyguard-python"
-version = "0.2.0"
+version = "0.3.0"
 description = "API key authentication, rate limiting, and abuse prevention as a drop-in Python library. Works with zero infrastructure."
 readme = "README.md"
 requires-python = ">=3.9"
