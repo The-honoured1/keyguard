@@ -31,13 +31,14 @@ class RateLimitService:
             remaining = limit - current_count - 1
             return False, max(0, remaining)
 
-    async def is_ip_blocked(self, ip_address: str) -> bool:
-        blocked = await self.redis.get(f"block:{ip_address}")
+    async def is_blocked(self, identifier: str) -> bool:
+        """Check if an identifier is currently blocked."""
+        blocked = await self.redis.get(f"block:{identifier}")
         return blocked is not None
 
-    async def block_ip(self, ip_address: str, duration_seconds: int):
-        """Manually block an IP for a specific duration."""
-        await self.redis.set(f"block:{ip_address}", "1", ex=duration_seconds)
+    async def block(self, identifier: str, duration_seconds: int):
+        """Manually block an identifier for a specific duration."""
+        await self.redis.set(f"block:{identifier}", "1", ex=duration_seconds)
 
     async def track_ip_abuse(self, ip_address: str, threshold: int = 100):
         key = f"abuse:{ip_address}"
@@ -46,4 +47,4 @@ class RateLimitService:
             await self.redis.expire(key, 3600)
         
         if count > threshold:
-            await self.redis.set(f"block:{ip_address}", "1", ex=86400)
+            await self.block(ip_address, 86400)

@@ -55,22 +55,22 @@ class MemoryRateLimitService:
             remaining = limit - current_count - 1
             return False, max(0, remaining)
 
-    async def is_ip_blocked(self, ip_address: str) -> bool:
-        """Check if an IP is currently blocked."""
+    async def is_blocked(self, identifier: str) -> bool:
+        """Check if an identifier (IP or IP+Path) is currently blocked."""
         async with self._lock:
-            blocked_until = self._blocked_ips.get(ip_address)
+            blocked_until = self._blocked_ips.get(identifier)
             if blocked_until is None:
                 return False
             if time.time() > blocked_until:
                 # Block has expired
-                del self._blocked_ips[ip_address]
+                del self._blocked_ips[identifier]
                 return False
             return True
 
-    async def block_ip(self, ip_address: str, duration_seconds: int):
-        """Manually block an IP for a specific duration."""
+    async def block(self, identifier: str, duration_seconds: int):
+        """Manually block an identifier for a specific duration."""
         async with self._lock:
-            self._blocked_ips[ip_address] = time.time() + duration_seconds
+            self._blocked_ips[identifier] = time.time() + duration_seconds
 
     async def track_ip_abuse(self, ip_address: str, threshold: int = 100):
         """Track failed auth attempts per IP and block if threshold exceeded."""
@@ -87,8 +87,8 @@ class MemoryRateLimitService:
             self._abuse_counts[ip_address] = (count, first_seen)
 
             if count > threshold:
-                # Block for 24 hours
-                self._blocked_ips[ip_address] = now + 86400
+                # Block the IP globally for 24 hours
+                await self.block(ip_address, 86400)
 
     async def cleanup(self):
         """Remove expired entries to prevent memory leaks.

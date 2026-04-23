@@ -25,6 +25,7 @@ import asyncio
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Depends
+from fastapi.responses import JSONResponse
 
 from keyguard import KeyGuard, KeyGuardConfig, KeyGuardMiddleware, Organization, APIKey, rate_limit_by_ip
 from keyguard.api.admin import create_admin_router
@@ -99,12 +100,39 @@ async def login(_=Depends(rate_limit_by_ip(kg, limit=3, window=60, lockout=86400
 
 
 @app.post("/signup")
-async def signup(_=Depends(rate_limit_by_ip(kg, limit=2, window=3600, lockout="11:59 PM"))):
+async def signup(_=Depends(rate_limit_by_ip(kg, limit=2, window=3600, lockout="11:59 PM", scope="global"))):
     """
-    Example signup route with a lockout until 11:59 PM.
-    If you hit the limit, you cannot try again until midnight.
+    Example signup route with a GLOBAL lockout until 11:59 PM.
+    If you hit the limit, you are blocked from the WHOLE API.
     """
     return {"message": "Signup successful! (Allowed by strict IP rate limit)"}
+
+
+@app.post("/heavy-task")
+async def heavy_task(_=Depends(rate_limit_by_ip(kg, limit=1, window=60, lockout=3600, scope="path"))):
+    """
+    Path-specific lockout!
+    If you hit the limit, you are blocked ONLY from /heavy-task for 1 hour.
+    You can still use /public or /login.
+    """
+    return {"message": "Heavy task completed successfully!"}
+
+
+@app.post("/simulate-payment")
+async def simulate_payment(request: Request, fail: bool = False, _=Depends(rate_limit_by_ip(kg, limit=100))):
+    """
+    Demonstrates manual logic-based lockout.
+    Triggered by '?fail=true' query param.
+    """
+    if fail:
+        # Business logic failed: manually block this IP from THIS route for 10 minutes
+        await kg.block_request(request, duration=600, scope="path")
+        return JSONResponse(
+            status_code=400,
+            content={"error": "Payment failed. You are locked out of this endpoint for 10 minutes."}
+        )
+
+    return {"message": "Payment successful!"}
 
 
 @app.get("/api/data")

@@ -29,11 +29,11 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
         start_time = time.time()
         ip_address = request.client.host if request.client else "unknown"
 
-        # 1. IP Blacklist Check
-        if await self.kg.rate_limiting.is_ip_blocked(ip_address):
+        # 1. IP Blacklist Check (Global)
+        if await self.kg.rate_limiting.is_blocked(ip_address):
             return JSONResponse(
                 status_code=403,
-                content={"detail": "IP address blocked due to abuse."}
+                content={"detail": "Access denied. Your IP address is blocked."}
             )
 
         # 2. Extract API Key
@@ -108,41 +108,50 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
             return response
 
 
-def rate_limit_by_ip(kg_instance, limit: int, window: int = 60, lockout: int | str = 0):
+def rate_limit_by_ip(kg_instance, limit: int, window: int = 60, lockout: int | str = 0, scope: str = "path"):
     """FastAPI dependency factory for IP-based rate limiting.
 
-    Useful for login, signup, and other routes that don't use API keys.
-    Ensures that a single IP cannot brute-force authentication endpoints.
+    Useful for sensitive routes like login, signup, or heavy processing.
+    Ensures that a single IP cannot brute-force or abuse specific endpoints.
 
     Args:
         kg_instance: KeyGuard instance.
         limit: Number of allowed requests.
         window: Sliding window in seconds.
-        lockout: If set, blocks the IP for this many seconds (int) or until
-                 a specific time (str like "16:00") when the limit is hit.
+        lockout: If set, blocks the IP when the limit is hit. Can be seconds (int)
+                 or a specific time string (e.g., "4:00 PM").
+        scope: "path" (default) to block only this route, or "global" to block the
+               IP from all KeyGuard-protected routes.
     """
     async def dependency(request: Request):
         ip = request.client.host if request.client else "unknown"
+        path_identifier = f"ip_limit:{ip}:{request.url.path}"
 
-        # 1. Check if IP is already blocked (global block)
-        if await kg_instance.rate_limiting.is_ip_blocked(ip):
+        # 1. Check if IP is already blocked GLOBALLY
+        if await kg_instance.rate_limiting.is_blocked(ip):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="IP address blocked due to abuse."
+                detail="Access denied. Your IP address is blocked."
             )
 
-        # 2. Check path-specific rate limit
+        # 2. Check if this specific PATH is blocked (if using path scope)
+        if scope == "path" and await kg_instance.rate_limiting.is_blocked(path_identifier):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Access to this specific resource is temporarily blocked."
+            )
+
+        # 3. Check path-specific rate limit
         is_limited, remaining = await kg_instance.rate_limiting.is_rate_limited(
-            key_id=f"ip_limit:{ip}:{request.url.path}",
+            key_id=path_identifier,
             limit=limit,
             window_seconds=window
         )
 
         if is_limited:
-            # Trigger a hard lockout if configured
+            # Trigger a lockout if configured
             if lockout:
-                duration = lockout if isinstance(lockout, int) else seconds_until_time(lockout)
-                await kg_instance.rate_limiting.block_ip(ip, duration)
+                await kg_instance.block_request(request, lockout, scope=scope)
 
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,

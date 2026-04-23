@@ -70,3 +70,23 @@ class KeyGuard:
                 raise
             finally:
                 await session.close()
+
+    async def block_request(self, request, duration: int | str, scope: str = "path"):
+        """Manually block the current IP/request from within a route handler.
+
+        Args:
+            request: The FastAPI Request object.
+            duration: Block duration in seconds (int) or target time (str, e.g., "4:00 PM").
+            scope: "path" (default) to block only this route, or "global" to block the IP
+                   from all KeyGuard regions.
+        """
+        from .middleware import seconds_until_time
+        ip = request.client.host if request.client else "unknown"
+
+        # Calculate duration
+        d_seconds = duration if isinstance(duration, int) else seconds_until_time(duration)
+
+        # Determine identifier
+        identifier = ip if scope == "global" else f"ip_limit:{ip}:{request.url.path}"
+
+        await self.rate_limiting.block(identifier, d_seconds)
