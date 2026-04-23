@@ -1,4 +1,4 @@
-from fastapi import Request, status
+from fastapi import Request, status, Depends, HTTPException
 from fastapi.responses import JSONResponse
 from starlette.middleware.base import BaseHTTPMiddleware
 import time
@@ -105,3 +105,47 @@ class KeyGuardMiddleware(BaseHTTPMiddleware):
             response.headers["X-RateLimit-Remaining"] = str(remaining)
 
             return response
+
+
+def rate_limit_by_ip(kg_instance, limit: int, window: int = 60):
+    """FastAPI dependency factory for IP-based rate limiting.
+
+    Useful for login, signup, and other routes that don't use API keys.
+    Ensures that a single IP cannot brute-force authentication endpoints.
+
+    Usage:
+        @app.post("/login", dependencies=[Depends(rate_limit_by_ip(kg, limit=5))])
+        async def login():
+            ...
+    """
+    async def dependency(request: Request):
+        ip = request.client.host if request.client else "unknown"
+
+        # 1. Check if IP is already blocked (global block)
+        if await kg_instance.rate_limiting.is_ip_blocked(ip):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="IP address blocked due to abuse."
+            )
+
+        # 2. Check path-specific rate limit
+        # We prefix with 'ip_limit' and include the path to avoid collisions
+        is_limited, remaining = await kg_instance.rate_limiting.is_rate_limited(
+            key_id=f"ip_limit:{ip}:{request.url.path}",
+            limit=limit,
+            window_seconds=window
+        )
+
+        if is_limited:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail="Rate limit exceeded. Please try again later.",
+                headers={
+                    "X-RateLimit-Limit": str(limit),
+                    "X-RateLimit-Remaining": "0"
+                }
+            )
+
+        return True
+
+    return dependency

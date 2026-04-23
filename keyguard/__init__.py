@@ -13,7 +13,7 @@ Quick Start:
     app.add_middleware(KeyGuardMiddleware, kg_instance=kg, protected_path="/api")
 """
 from .config import KeyGuardConfig
-from .middleware import KeyGuardMiddleware
+from .middleware import KeyGuardMiddleware, rate_limit_by_ip
 from .models import Base, Organization, APIKey, UsageLog
 from .services.auth_service import AuthService
 from .core import KeyGuard
@@ -22,6 +22,7 @@ __all__ = [
     "KeyGuard",
     "KeyGuardConfig",
     "KeyGuardMiddleware",
+    "rate_limit_by_ip",
     "Base",
     "Organization",
     "APIKey",

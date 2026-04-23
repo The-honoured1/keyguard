@@ -24,9 +24,9 @@ Then test:
 import asyncio
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Request, Depends
 
-from keyguard import KeyGuard, KeyGuardConfig, KeyGuardMiddleware, Organization, APIKey
+from keyguard import KeyGuard, KeyGuardConfig, KeyGuardMiddleware, Organization, APIKey, rate_limit_by_ip
 from keyguard.api.admin import create_admin_router
 
 
@@ -51,6 +51,7 @@ async def lifespan(app: FastAPI):
     print("\n🚀 KeyGuard is running!")
     print("   Public:    http://localhost:8000/public")
     print("   Protected: http://localhost:8000/api/data")
+    print("   Login (IP Limited): http://localhost:8000/login")
     print("   Admin:     http://localhost:8000/admin/keys")
     print("   Docs:      http://localhost:8000/docs\n")
     yield
@@ -86,6 +87,24 @@ app.include_router(
 async def public():
     """This route is NOT protected — anyone can access it."""
     return {"message": "This is public data. No API key needed."}
+
+
+@app.post("/login")
+async def login(_=Depends(rate_limit_by_ip(kg, limit=5, window=60))):
+    """
+    Example login route protected by IP-based rate limiting.
+    Allows 5 attempts per minute.
+    """
+    return {"message": "Login successful! (Allowed by IP rate limit)"}
+
+
+@app.post("/signup")
+async def signup(_=Depends(rate_limit_by_ip(kg, limit=2, window=3600))):
+    """
+    Example signup route with very strict rate limiting.
+    Allows 2 attempts per hour per IP.
+    """
+    return {"message": "Signup successful! (Allowed by strict IP rate limit)"}
 
 
 @app.get("/api/data")

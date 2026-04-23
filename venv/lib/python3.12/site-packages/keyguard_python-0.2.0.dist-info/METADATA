@@ -350,6 +350,26 @@ async def get_profile(request: Request):
     }
 ```
 
+### 3. Rate Limiting by IP (Login/Signup)
+
+For routes that don't use API keys (like login or signup), you can use the `rate_limit_by_ip` dependency. This prevents brute-force attacks by limiting requests from a single IP address.
+
+```python
+from keyguard import rate_limit_by_ip
+
+# Allow 5 login attempts per minute
+@app.post("/login", dependencies=[Depends(rate_limit_by_ip(kg, limit=5, window=60))])
+async def login():
+    return {"message": "Success"}
+
+# Extremely strict: 2 signups per hour per IP
+@app.post("/signup", dependencies=[Depends(rate_limit_by_ip(kg, limit=2, window=3600))])
+async def signup():
+    return {"message": "Account created"}
+```
+
+### 4. Three Ways to Manage Keys
+
 **Response headers on every authorized request:**
 ```
 X-RateLimit-Limit: 60
