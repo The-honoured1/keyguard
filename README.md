@@ -1,6 +1,6 @@
 <div align="center">
 
-<h2>[KEYGUARD](https://pypi.org/project/keyguard-python/)</h2>
+[KEYGUARD](https://pypi.org/project/keyguard-python) 
 
 <img src="https://img.shields.io/badge/KeyGuard-API%20Gateway%20Library-6D28D9?style=for-the-badge&logo=python&logoColor=white" />
 
