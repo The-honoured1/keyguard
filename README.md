@@ -1,5 +1,7 @@
 <div align="center">
 
+<h2>[KEYGUARD](https://pypi.org/project/keyguard-python/)</h2>
+
 <img src="https://img.shields.io/badge/KeyGuard-API%20Gateway%20Library-6D28D9?style=for-the-badge&logo=python&logoColor=white" />
 
 <h3>API key authentication, rate limiting, and abuse prevention<br>as a drop-in Python library.</h3>
@@ -25,7 +27,7 @@ Every API needs authentication and rate limiting. But setting up PostgreSQL, Red
 ## Zero-Infrastructure Quick Start
 
 ```bash
-pip install -e .
+pip install keyguard-python .
 ```
 
 ```python
