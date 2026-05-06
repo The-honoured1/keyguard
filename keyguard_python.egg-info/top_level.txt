@@ -1,5 +1,0 @@
-dist
-docker
-keyguard
-tests
-venv
